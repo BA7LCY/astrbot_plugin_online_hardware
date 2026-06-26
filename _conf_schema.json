@@ -1,0 +1,94 @@
+{
+  "enabled": {
+    "description": "启用插件",
+    "type": "bool",
+    "default": true
+  },
+  "default_region": {
+    "description": "默认地区代码，默认中国 CN",
+    "type": "string",
+    "default": "CN"
+  },
+  "cache_ttl_seconds": {
+    "description": "缓存秒数，默认一周",
+    "type": "int",
+    "default": 604800
+  },
+  "timeout_seconds": {
+    "description": "官网请求超时秒数",
+    "type": "int",
+    "default": 15
+  },
+  "llm_summary": {
+    "description": "是否启用模型总结，默认关闭省token",
+    "type": "bool",
+    "default": false
+  },
+  "nand_query_enabled": {
+    "description": "是否启用NAND物料/颗粒查询功能（基于iTXTech fdnext引擎）",
+    "type": "bool",
+    "default": true
+  },
+  "nand_api_base": {
+    "description": "fdnext API 地址，默认使用官方云端。可填自建实例地址如 http://127.0.0.1:8080",
+    "type": "string",
+    "default": "https://fdnext.itxtech.org"
+  },
+  "nand_trigger_keywords": {
+    "description": "NAND物料查询触发关键词列表",
+    "type": "list",
+    "default": ["颗粒", "物料", "flash id", "flashid", "nand", "pn查询", "型号查询"]
+  },
+  "image_sn_mode": {
+    "description": "图片SN识别模式：llm/本地ocr/off。默认llm，本地OCR需用户自行安装到AstrBot虚拟环境。",
+    "type": "string",
+    "default": "llm"
+  },
+  "min_sn_len": {
+    "description": "疑似SN最短长度。建议8，太短容易把型号/容量误识别成SN。",
+    "type": "int",
+    "default": 8
+  },
+  "max_sn_len": {
+    "description": "疑似SN最长长度",
+    "type": "int",
+    "default": 32
+  },
+  "trigger_keywords": {
+    "description": "触发关键词列表，匹配到任一关键词即触发",
+    "type": "list",
+    "default": ["质保", "保修", "查保修"]
+  },
+  "brand_aliases": {
+    "description": "品牌别名配置。后续加品牌先加Provider，再在这里加别名。",
+    "type": "object",
+    "default": {},
+    "items": {
+      "western_digital": {
+        "description": "西部数据别名",
+        "type": "list",
+        "default": ["西数", "西部数据", "WD", "Western Digital"]
+      },
+      "seagate": {
+        "description": "希捷别名",
+        "type": "list",
+        "default": ["希捷", "Seagate", "海门"]
+      },
+      "toshiba": {
+        "description": "东芝别名",
+        "type": "list",
+        "default": ["东芝", "Toshiba"]
+      },
+      "sandisk": {
+        "description": "闪迪别名",
+        "type": "list",
+        "default": ["闪迪", "sandisk"]
+      },
+      "ymtc": {
+        "description": "致态别名",
+        "type": "list",
+        "default": ["致态", "YMTC", "长江存储"]
+      }
+    }
+  }
+}
