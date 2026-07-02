@@ -6,4 +6,3 @@ data/cache.json
 *.egg-info/
 dist/
 build/
-.codegraph/

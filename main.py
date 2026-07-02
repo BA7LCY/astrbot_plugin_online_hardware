@@ -1,5 +1,3 @@
-import asyncio
-import importlib.util
 import re
 from pathlib import Path
 from typing import Optional
@@ -14,7 +12,7 @@ from .providers import build_nand_provider, build_providers
 
 
 INTENT_WORDS = ("保修", "质保", "warranty", "rma")
-NAND_INTENT_WORDS = ("颗粒", "物料", "flash id", "flashid", "nand", "pn查询", "型号查询")
+NAND_INTENT_WORDS = ("查颗粒", "查物料", "查flash id", "查flashid", "查nand", "查pn", "查型号")
 REGION_ALIASES = {
     "中国": "CN",
     "大陆": "CN",
@@ -39,7 +37,7 @@ REGION_DISPLAY = {
     "在线硬件查询",
     "BA7LCY",
     "在线硬件产品查询工具，支持质保查询、NAND颗粒物料识别等功能，支持文本和图片识别",
-    "1.3.0",
+    "1.4.0",
 )
 class WarrantyCheckerPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
@@ -51,16 +49,21 @@ class WarrantyCheckerPlugin(Star):
         self.timeout_seconds = int(self.config.get("timeout_seconds", 15))
         self.llm_summary = bool(self.config.get("llm_summary", False))
         self.image_sn_mode = str(self.config.get("image_sn_mode", "llm")).lower().strip()
-        if self.image_sn_mode == "本地ocr":
-            self.image_sn_mode = "local_ocr"
-        if self.image_sn_mode not in {"llm", "local_ocr", "off"}:
+        if self.image_sn_mode not in {"llm", "off"}:
             self.image_sn_mode = "llm"
+        # 兼容旧配置：本地 OCR 只作为遗留值容忍，但不再进入识图流程
+        self.image_ocr_provider = str(self.config.get("image_ocr_provider", "") or "").strip()
+        self.vision_provider_id = str(self.config.get("vision_provider_id", "") or "").strip()
+        self.image_prompt = str(self.config.get("image_prompt", "") or "").strip()
+        self.fail_message = str(self.config.get("fail_message", "看不清图，别用锁泥相机拍") or "")
+        self._cached_framework_vlm_id: str | None = None
         self.min_sn_len = int(self.config.get("min_sn_len", 8))
         self.max_sn_len = int(self.config.get("max_sn_len", 32))
         self.brand_aliases = self.config.get("brand_aliases", {}) or {}
-        self.trigger_keywords = self.config.get("trigger_keywords", ["质保"])
+        self.trigger_keywords = self.config.get("trigger_keywords", ["查质保", "查保修"])
         if isinstance(self.trigger_keywords, str):
             self.trigger_keywords = [kw.strip() for kw in self.trigger_keywords.split(",") if kw.strip()]
+        self.trigger_keywords = self._normalize_command_keywords(self.trigger_keywords, {"质保": "查质保", "保修": "查保修"})
         if not self.brand_aliases:
             self.brand_aliases = {
                 "western_digital": ["西数", "西部数据", "wd", "western digital"],
@@ -72,17 +75,42 @@ class WarrantyCheckerPlugin(Star):
 
         base_dir = Path(__file__).resolve().parent
         self.cache = JsonCache(base_dir / "data" / "cache.json", self.cache_ttl_seconds)
-        self.providers = build_providers(self.timeout_seconds, self.image_sn_mode)
+        self.providers = build_providers(self.timeout_seconds, "llm")
         nand_api_base = str(self.config.get("nand_api_base", "")).strip()
         self.nand_provider = build_nand_provider(self.timeout_seconds, nand_api_base)
         self.nand_enabled = bool(self.config.get("nand_query_enabled", True))
         nand_kw_cfg = self.config.get("nand_trigger_keywords", list(NAND_INTENT_WORDS))
         if isinstance(nand_kw_cfg, str):
             nand_kw_cfg = [kw.strip() for kw in nand_kw_cfg.split(",") if kw.strip()]
-        self.nand_trigger_keywords = [str(kw).strip().lower() for kw in nand_kw_cfg if str(kw).strip()]
+        self.nand_trigger_keywords = self._normalize_command_keywords(
+            nand_kw_cfg,
+            {
+                "颗粒": "查颗粒",
+                "物料": "查物料",
+                "flash id": "查flash id",
+                "flashid": "查flashid",
+                "nand": "查nand",
+                "pn查询": "查pn",
+                "型号查询": "查型号",
+            },
+            lower=True,
+        )
         if not self.nand_trigger_keywords:
             self.nand_trigger_keywords = list(NAND_INTENT_WORDS)
         self.alias_to_brand = self._build_alias_map()
+
+    def _normalize_command_keywords(self, keywords, legacy_map: dict[str, str], lower: bool = False) -> list[str]:
+        normalized: list[str] = []
+        for kw in keywords or []:
+            item = str(kw).strip()
+            if not item:
+                continue
+            mapped = legacy_map.get(item.lower(), item)
+            if lower:
+                mapped = mapped.lower()
+            if mapped not in normalized:
+                normalized.append(mapped)
+        return normalized
 
     def _build_alias_map(self) -> dict[str, str]:
         alias_map = {}
@@ -93,13 +121,26 @@ class WarrantyCheckerPlugin(Star):
                     alias_map[alias] = str(brand_id)
         return alias_map
 
-    def _has_intent(self, text: str) -> bool:
-        lower = text.lower()
-        return any(word in lower for word in INTENT_WORDS)
+    def _match_strict_keyword(self, text: str, keywords: list[str], allow_empty_arg: bool = False) -> Optional[tuple[str, str]]:
+        """匹配命令。默认要求“关键词 空格 参数”；有图时允许只有关键词。"""
+        clean = self._clean_text(text)
+        for keyword in sorted((str(kw).strip() for kw in keywords), key=len, reverse=True):
+            if not keyword:
+                continue
+            if allow_empty_arg and re.fullmatch(re.escape(keyword), clean, re.I):
+                return keyword, ""
+            match = re.match(rf"^{re.escape(keyword)}\s+(.+)$", clean, re.I)
+            if match:
+                arg = match.group(1).strip()
+                if arg:
+                    return keyword, arg
+        return None
 
-    def _has_nand_intent(self, text: str) -> bool:
-        lower = text.lower()
-        return any(word in lower for word in self.nand_trigger_keywords)
+    def _has_intent(self, text: str, allow_empty_arg: bool = False) -> bool:
+        return self._match_strict_keyword(text, list(self.trigger_keywords), allow_empty_arg) is not None
+
+    def _has_nand_intent(self, text: str, allow_empty_arg: bool = False) -> bool:
+        return self._match_strict_keyword(text, self.nand_trigger_keywords, allow_empty_arg) is not None
 
     def _find_brand(self, text: str) -> Optional[tuple[str, str]]:
         lower = text.lower()
@@ -137,35 +178,18 @@ class WarrantyCheckerPlugin(Star):
             return None
         return max(candidates, key=len)
 
-    def _parse_nand_query(self, text: str) -> Optional[NandQuery]:
-        """解析 NAND 物料查询请求。支持：
-        - 颗粒 MT29F64G08CBABA
-        - 物料查询 2C64444BA900
-        - flash id 2C64444BA900
-        - pn查询 MT29F1T08EQLCEB2
-        """
+    def _parse_nand_query(self, text: str, allow_empty_arg: bool = False) -> Optional[NandQuery]:
+        """解析 NAND 物料查询请求。无文本参数且有图时交给视觉模型。"""
         if not self.nand_enabled:
             return None
-        lower = text.lower()
-        nand_kw = None
-        for kw in self.nand_trigger_keywords:
-            if kw in lower:
-                nand_kw = kw
-                break
-        if not nand_kw:
+        matched = self._match_strict_keyword(text, self.nand_trigger_keywords, allow_empty_arg)
+        if not matched:
             return None
-        # 去掉关键词和常见前缀，提取查询文本
-        tmp = text
-        for kw in self.nand_trigger_keywords:
-            tmp = re.sub(re.escape(kw), " ", tmp, flags=re.I)
-        tmp = re.sub(r"(查一下|帮我|查询|查|一下|的|：|:)", " ", tmp)
-        tmp = re.sub(r"\[CQ:[^\]]+\]", " ", tmp)
-        tmp = re.sub(r"^\s*@\S+\s*", "", tmp)
-        tmp = tmp.strip()
-        if not tmp:
+        _, tmp = matched
+        if allow_empty_arg and tmp.strip().lower() in {"", "图片", "图", "image", "img"}:
             return None
         # 去掉可能的空格分隔（flash id 可能是 "2C,64,44,4B,A9,00" 或 "2C 64 44 4B A9 00"）
-        cleaned = re.sub(r"[\s,]+", "", tmp)
+        cleaned = re.sub(r"[\s,]+", "", tmp.strip())
         if not cleaned:
             return None
         # Flash ID 通常是纯 hex，12-16 位
@@ -175,10 +199,14 @@ class WarrantyCheckerPlugin(Star):
         # 默认当 PN 处理
         return NandQuery(query=cleaned.upper(), query_type="part_number")
 
-    def _parse_query(self, text: str) -> Optional[WarrantyQuery]:
-        text = self._clean_text(text)
-        kw_pattern = "|".join(re.escape(kw) for kw in self.trigger_keywords)
-        match = re.match(r"^\s*(?:%s)\s+(\S+)\s+([A-Za-z0-9][A-Za-z0-9\-_]{%d,%d})\s*$" % (kw_pattern, self.min_sn_len - 1, self.max_sn_len - 1), text, re.I)
+    def _parse_query(self, text: str, allow_empty_arg: bool = False) -> Optional[WarrantyQuery]:
+        matched = self._match_strict_keyword(text, list(self.trigger_keywords), allow_empty_arg)
+        if not matched:
+            return None
+        _, arg = matched
+        if allow_empty_arg and arg.strip().lower() in {"", "图片", "图", "image", "img"}:
+            return None
+        match = re.match(r"^(\S+)\s+([A-Za-z0-9][A-Za-z0-9\-_]{%d,%d})\s*$" % (self.min_sn_len - 1, self.max_sn_len - 1), arg, re.I)
         if not match:
             return None
         brand_text, serial = match.groups()
@@ -198,6 +226,12 @@ class WarrantyCheckerPlugin(Star):
 
     def _cache_key(self, query: WarrantyQuery) -> str:
         return f"{query.brand}:{query.region}:{query.serial}".lower()
+
+    def _log_value(self, value: str) -> str:
+        return str(value or "")
+
+    def _log_text(self, text: str) -> str:
+        return self._clean_text(text)
 
     def _format_result(self, result: WarrantyResult, from_cache: bool = False) -> str:
         if result.brand == "希捷" and result.need_manual:
@@ -226,20 +260,53 @@ class WarrantyCheckerPlugin(Star):
 
     def _extract_images(self, event: AstrMessageEvent) -> list[str]:
         images: list[str] = []
+
+        def add_image(comp) -> None:
+            url = getattr(comp, "url", None)
+            file = getattr(comp, "file", None)
+            path = getattr(comp, "path", None)
+            if url:
+                images.append(str(url))
+            elif path:
+                images.append(str(path))
+            elif file:
+                images.append(str(file))
+
         try:
             for comp in getattr(event.message_obj, "message", []) or []:
-                url = getattr(comp, "url", None)
-                file = getattr(comp, "file", None)
-                path = getattr(comp, "path", None)
-                if url:
-                    images.append(str(url))
-                elif path:
-                    images.append(str(path))
-                elif file:
-                    images.append(str(file))
+                if hasattr(comp, "chain") and getattr(comp, "chain", None):
+                    for quoted_comp in comp.chain:
+                        add_image(quoted_comp)
+                add_image(comp)
         except Exception:
             pass
         return images
+
+    async def _resolve_vision_provider(self) -> str:
+        if self.vision_provider_id:
+            return self.vision_provider_id
+        if self._cached_framework_vlm_id is not None:
+            return self._cached_framework_vlm_id
+        framework_vlm_id = ""
+        try:
+            astrbot_config = self.context.get_config()
+            provider_settings = astrbot_config.get("provider_settings", {})
+            framework_vlm_id = str(provider_settings.get("default_image_caption_provider_id", "") or "").strip()
+        except Exception as e:
+            logger.debug(f"[online_hardware] read default image caption provider failed: {e}")
+        self._cached_framework_vlm_id = framework_vlm_id
+        return framework_vlm_id
+
+    async def _call_vision_model(self, prompt: str, image_url: str) -> str:
+        provider_id = await self._resolve_vision_provider()
+        if not provider_id:
+            raise RuntimeError("未配置视觉模型")
+        resp = await self.context.llm_generate(
+            chat_provider_id=provider_id,
+            prompt=prompt,
+            image_urls=[image_url],
+        )
+        return (getattr(resp, "completion_text", "") or str(resp) or "").strip()
 
     def _extract_query_from_ocr_text(self, text: str) -> Optional[WarrantyQuery]:
         brand_hit = self._find_brand(text)
@@ -264,43 +331,17 @@ class WarrantyCheckerPlugin(Star):
         images = self._extract_images(event)
         if not images:
             return None
-        if self.image_sn_mode == "local_ocr":
-            return await self._query_from_images_local_ocr(images)
         return await self._query_from_images_llm(event, images, text)
 
-    async def _query_from_images_local_ocr(self, images: list[str]) -> Optional[WarrantyQuery]:
-        if importlib.util.find_spec("easyocr") is None:
-            raise RuntimeError("本地OCR未安装，请在AstrBot虚拟环境执行：python -m pip install easyocr")
-
-        def run_ocr() -> str:
-            import easyocr  # type: ignore
-            reader = easyocr.Reader(["en"], gpu=False)
-            parts: list[str] = []
-            for img in images[:1]:
-                parts.extend(str(x) for x in reader.readtext(img, detail=0, paragraph=False))
-            return "\n".join(parts)
-
-        ocr_text = await asyncio.to_thread(run_ocr)
-        return self._extract_query_from_ocr_text(ocr_text)
-
     async def _query_from_images_llm(self, event: AstrMessageEvent, images: list[str], text: str) -> Optional[WarrantyQuery]:
-        provider = self.context.get_using_provider(event.unified_msg_origin)
-        if not provider:
-            raise RuntimeError("未配置可用LLM Provider")
-        prompt = (
+        prompt = self.image_prompt or (
             "从图片里的产品标签提取品牌和序列号SN。"
             "只返回JSON，不要解释，格式："
-            "{\"brand\":\"wd或seagate或unknown\",\"serial\":\"SN\"}。"
-            "如果识别不到serial就返回空字符串。\n"
-            f"用户文本：{text}"
+            "{\"brand\":\"western_digital或seagate或toshiba或sandisk或ymtc或unknown\",\"serial\":\"SN\"}。"
+            "如果识别不到serial就返回空字符串。"
         )
-        resp = await provider.text_chat(
-            prompt=prompt,
-            session_id=getattr(event, "session_id", None),
-            image_urls=images[:1],
-            persist=False,
-        )
-        raw = getattr(resp, "completion_text", "") or str(resp)
+        prompt = f"{prompt}\n用户文本：{text}"
+        raw = await self._call_vision_model(prompt, images[0])
         brand = None
         m_brand = re.search(r'"brand"\s*:\s*"([^"\n]+)"', raw, re.I)
         if m_brand:
@@ -324,29 +365,14 @@ class WarrantyCheckerPlugin(Star):
         if not images:
             return None
 
-        if self.image_sn_mode == "local_ocr":
-            return await self._query_nand_from_images_local_ocr(images)
-
-        # LLM 模式：让 LLM 从芯片照片中提取 PN
-        provider = self.context.get_using_provider(event.unified_msg_origin)
-        if not provider:
-            raise RuntimeError("未配置可用LLM Provider")
-        prompt = (
-            "从图片里的 NAND Flash 芯片上提取丝印型号（Part Number）。"
-            "芯片上通常印有厂商 logo 和类似 MT29F、K9ABGD、H27Q 等开头的型号字符串。\n"
-            "只返回JSON，不要解释，格式："
-            "{\"pn\":\"型号字符串\",\"type\":\"pn或flash_id\"}。\n"
-            "type 为 pn 表示 Part Number，flash_id 表示 Flash ID（纯十六进制）。\n"
-            "如果识别不到就返回 {\"pn\":\"\",\"type\":\"\"}。\n"
-            f"用户文本：{text}"
+        prompt = self.image_prompt or (
+            "从图片里的硬件标签、NAND Flash 芯片或颗粒丝印中提取硬件型号、序列号、"
+            "NAND Part Number 或 Flash ID。只返回JSON，不要解释。"
+            "NAND格式：{\"pn\":\"型号字符串\",\"type\":\"pn或flash_id\"}。"
+            "如果识别不到就返回 {\"pn\":\"\",\"type\":\"\"}。"
         )
-        resp = await provider.text_chat(
-            prompt=prompt,
-            session_id=getattr(event, "session_id", None),
-            image_urls=images[:1],
-            persist=False,
-        )
-        raw = getattr(resp, "completion_text", "") or str(resp)
+        prompt = f"{prompt}\n用户文本：{text}"
+        raw = await self._call_vision_model(prompt, images[0])
         m_pn = re.search(r'"pn"\s*:\s*"([^"]+)"', raw, re.I)
         pn = m_pn.group(1).strip() if m_pn else ""
         if not pn:
@@ -358,36 +384,6 @@ class WarrantyCheckerPlugin(Star):
             return NandQuery(query=cleaned, query_type="flash_id")
         return NandQuery(query=pn.upper(), query_type="part_number")
 
-    async def _query_nand_from_images_local_ocr(self, images: list[str]) -> Optional[NandQuery]:
-        """从图片中用本地 OCR 识别 NAND 颗粒型号"""
-        if importlib.util.find_spec("easyocr") is None:
-            raise RuntimeError("本地OCR未安装，请在AstrBot虚拟环境执行：python -m pip install easyocr")
-
-        def run_ocr() -> str:
-            import easyocr  # type: ignore
-            reader = easyocr.Reader(["en"], gpu=False)
-            parts: list[str] = []
-            for img in images[:1]:
-                parts.extend(str(x) for x in reader.readtext(img, detail=0, paragraph=False))
-            return "\n".join(parts)
-
-        ocr_text = await asyncio.to_thread(run_ocr)
-        # 从 OCR 文本中尝试匹配 PN 模式
-        # 常见 NAND PN 前缀
-        pn_patterns = [
-            r"((?:MT|K9|H27|TC58|TH58|SDTNRGAMA|SDINBD|WD|SanDisk)[A-Za-z0-9]{6,})",
-            r"([A-Z]{2,3}[0-9][A-Z][A-Za-z0-9]{8,})",
-        ]
-        for pat in pn_patterns:
-            m = re.search(pat, ocr_text, re.I)
-            if m:
-                return NandQuery(query=m.group(1).upper(), query_type="part_number")
-        # 尝试匹配 Flash ID（纯 hex，12-16 位）
-        m_hex = re.search(r"\b([0-9A-Fa-f]{12,16})\b", ocr_text)
-        if m_hex:
-            return NandQuery(query=m_hex.group(1).upper(), query_type="flash_id")
-        return None
-
     @filter.event_message_type(filter.EventMessageType.ALL, priority=20)
     async def on_message(self, event: AstrMessageEvent):
         if not self.enabled:
@@ -398,19 +394,35 @@ class WarrantyCheckerPlugin(Star):
             text = event.message_str or event.get_message_str() or ""
         except Exception:
             text = ""
+        images = self._extract_images(event)
+        has_images = bool(images)
+        strict_nand_intent = self._has_nand_intent(text, allow_empty_arg=has_images)
+        strict_warranty_intent = self._has_intent(text, allow_empty_arg=has_images)
+        logger.debug(
+            "[online_hardware] inspect at=%s images=%d nand_intent=%s warranty_intent=%s text=%s",
+            bool(getattr(event, "is_at_or_wake_command", False)),
+            len(images),
+            strict_nand_intent,
+            strict_warranty_intent,
+            self._log_text(text),
+        )
+        if not strict_nand_intent and not strict_warranty_intent:
+            return
+        mode = "nand" if strict_nand_intent else "warranty"
+        logger.info("[online_hardware] command hit mode=%s images=%d text=%s", mode, len(images), self._log_text(text))
+
         # 优先检查 NAND 物料查询意图
-        nand_query = self._parse_nand_query(text)
-        if not nand_query and self._has_nand_intent(text):
-            # 有 NAND 意图但没有解析出查询文本，尝试从图片识别
+        nand_query = self._parse_nand_query(text, allow_empty_arg=has_images)
+        if not nand_query and strict_nand_intent:
+            # 严格命中 NAND 关键词但文本参数无法直接查询时，尝试从图片识别
             try:
                 nand_query = await self._query_nand_from_images(event, text)
-            except RuntimeError as e:
-                yield event.plain_result(str(e))
-                event.should_call_llm(False)
-                return
             except Exception as e:
                 logger.warning(f"[online_hardware] nand image extract failed: {e}")
+                event.should_call_llm(False)
+                return
         if nand_query:
+            logger.info("[online_hardware] nand query type=%s query=%s", nand_query.query_type, self._log_value(nand_query.query))
             try:
                 nand_result = await self.nand_provider.query(nand_query)
                 from .providers.nand import NandProvider
@@ -423,28 +435,24 @@ class WarrantyCheckerPlugin(Star):
             return
 
         # 质保查询流程
-        query = self._parse_query(text)
+        query = self._parse_query(text, allow_empty_arg=has_images)
+        if not query and strict_warranty_intent:
+            try:
+                query = await self._query_from_images(event, text)
+            except Exception as e:
+                logger.warning(f"[online_hardware] image sn extract failed: {e}")
+                event.should_call_llm(False)
+                return
         if not query:
-            has_brand_in_text = self._find_brand(text) is not None
-            has_intent_in_text = self._has_intent(text)
-            if has_brand_in_text or has_intent_in_text:
-                try:
-                    query = await self._query_from_images(event, text)
-                except RuntimeError as e:
-                    yield event.plain_result(str(e))
-                    event.should_call_llm(False)
-                    return
-                except Exception as e:
-                    logger.warning(f"[online_hardware] image sn extract failed: {e}")
-                    yield event.plain_result("图片SN识别失败")
-                    event.should_call_llm(False)
-                    return
-        if not query:
+            logger.info("[online_hardware] command hit but no query parsed images=%d text=%s", len(images), self._log_text(text))
+            event.should_call_llm(False)
             return
 
+        logger.info("[online_hardware] warranty query brand=%s region=%s sn=%s", query.brand, query.region, self._log_value(query.serial))
         key = self._cache_key(query)
         cached = self.cache.get(key)
         if cached:
+            logger.info("[online_hardware] warranty cache hit brand=%s region=%s sn=%s", query.brand, query.region, self._log_value(query.serial))
             yield event.plain_result(self._format_result(cached, from_cache=True))
             event.should_call_llm(False)
             return
@@ -456,7 +464,7 @@ class WarrantyCheckerPlugin(Star):
         try:
             result = await provider.query(query)
         except Exception as e:
-            logger.warning(f"[online_hardware] query failed brand={query.brand} sn={query.serial}: {e}")
+            logger.warning("[online_hardware] query failed brand=%s sn=%s: %s", query.brand, self._log_value(query.serial), e)
             result = WarrantyResult(
                 ok=False,
                 brand=query.brand_name,

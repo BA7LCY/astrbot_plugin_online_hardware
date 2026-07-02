@@ -35,12 +35,27 @@
     "default": "https://fdnext.itxtech.org"
   },
   "nand_trigger_keywords": {
-    "description": "NAND物料查询触发关键词列表",
+    "description": "NAND 查询命令关键词列表。群聊中需 @机器人。文本查询严格为“关键词 空格 参数”；带图或引用图时允许只发关键词，例如：查颗粒 + 图片。", 
     "type": "list",
-    "default": ["颗粒", "物料", "flash id", "flashid", "nand", "pn查询", "型号查询"]
+    "default": ["查颗粒", "查物料", "查flash id", "查flashid", "查nand", "查pn", "查型号"]
+  },
+  "vision_provider_id": {
+    "description": "图片识别使用的视觉模型 provider_id。留空时使用 AstrBot 全局 default_image_caption_provider_id。",
+    "type": "string",
+    "default": ""
+  },
+  "image_prompt": {
+    "description": "图片识别提示词。留空时使用插件内置默认提示词。",
+    "type": "string",
+    "default": ""
+  },
+  "fail_message": {
+    "description": "图片识别失败时回复内容。留空则不回复。",
+    "type": "string",
+    "default": "看不清图，别用锁泥相机拍"
   },
   "image_sn_mode": {
-    "description": "图片SN识别模式：llm/本地ocr/off。默认llm，本地OCR需用户自行安装到AstrBot虚拟环境。",
+    "description": "图片SN识别模式：llm/off。当前仅保留视觉模型识别。",
     "type": "string",
     "default": "llm"
   },
@@ -55,9 +70,9 @@
     "default": 32
   },
   "trigger_keywords": {
-    "description": "触发关键词列表，匹配到任一关键词即触发",
+    "description": "质保查询命令关键词列表。群聊中需 @机器人，且消息清洗后必须严格为“关键词 空格 品牌 空格 SN/图片说明”才触发，例如：查质保 西数 SN123、查保修 希捷 图片。", 
     "type": "list",
-    "default": ["质保", "保修", "查保修"]
+    "default": ["查质保", "查保修"]
   },
   "brand_aliases": {
     "description": "品牌别名配置。后续加品牌先加Provider，再在这里加别名。",
