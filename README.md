@@ -1,7 +1,7 @@
 # 在线硬件查询插件
 
 AstrBot 在线硬件产品查询工具，支持质保查询、NAND 物料/颗粒识别等功能，支持文本和图片识别SN。
-图片识别使用 AstrBot 视觉模型 provider；留空则自动使用全局 `default_image_caption_provider_id`。
+图片识别使用 AstrBot 视觉模型 provider；可在配置页下拉选择，留空则自动使用全局 `default_image_caption_provider_id`。
 
 ## 当前支持功能
 
@@ -41,38 +41,38 @@ AstrBot 在线硬件产品查询工具，支持质保查询、NAND 物料/颗粒
 格式：`查质保 品牌 SN` 或 `查保修 品牌 SN`
 
 示例：
-- `质保 西数 WXA1A12345678`
-- `质保 希捷 ZR1A12345678`
-- `质保 东芝 X5U2A02E12345`
+- `查质保 西数 WXA1A12345678`
+- `查质保 希捷 ZR1A12345678`
+- `查保修 东芝 X5U2A02E12345`
 
 ### 质保查询 - 图片查询
 
-发送或引用产品标签图片，带上品牌关键词：
-- `质保 西数` + 图片
-- `质保 希捷` + 图片
-- `质保 致态` + 图片
+发送或引用产品标签图片，带上查询命令和品牌：
+- `查质保 西数` + 图片
+- `查质保 希捷` + 图片
+- `查质保 致态` + 图片
 
-插件会自动从图片中提取SN，然后查询对应品牌。
+插件会通过 AstrBot 视觉模型 provider 从图片中提取 SN，然后查询对应品牌。
 
 ### NAND 物料查询 - 文本查询
 
 格式：`查颗粒 型号` 或 `查物料 查询文本`
 
 示例：
-- `颗粒 MT29F64G08CBABA` — 查询美光 8GB MLC NAND 颗粒详情
-- `物料 2C64444BA900` — 通过 Flash ID 查询颗粒信息
-- `flash id 2C,64,44,4B,A9,00` — 支持逗号/空格分隔的 Flash ID
-- `pn查询 MT29F1T08EQLCEB2` — 查询美光 128GB QLC 颗粒
-- `型号查询 K9ABGD8U0D` — 查询三星颗粒
+- `查颗粒 MT29F64G08CBABA` — 查询美光 8GB MLC NAND 颗粒详情
+- `查物料 2C64444BA900` — 通过 Flash ID 查询颗粒信息
+- `查flash id 2C,64,44,4B,A9,00` — 支持逗号/空格分隔的 Flash ID
+- `查pn MT29F1T08EQLCEB2` — 查询美光 128GB QLC 颗粒
+- `查型号 K9ABGD8U0D` — 查询三星颗粒
 
 ### NAND 物料查询 - 图片查询
 
-发送或引用 NAND 芯片照片，带上颗粒关键词：
-- `颗粒` + 图片
-- `物料` + 图片
+发送或引用 NAND 芯片照片，带上查询命令：
+- `查颗粒` + 图片
+- `查物料` + 图片
 
-插件会通过 LLM 或本地 OCR 从芯片丝印中自动识别型号（PN / Flash ID），然后查询。
-图片识别模式复用 `image_sn_mode` 配置项（llm / off）。
+插件会通过 AstrBot 视觉模型 provider 从芯片丝印中自动识别型号（PN / Flash ID），然后查询。
+关闭 `image_recognition_enabled` 可关闭图片识别。
 
 ## 配置项
 
@@ -87,7 +87,10 @@ AstrBot 在线硬件产品查询工具，支持质保查询、NAND 物料/颗粒
 | nand_query_enabled | bool | true | 启用 NAND 物料查询功能 |
 | nand_api_base | string | https://fdnext.itxtech.org | fdnext API 地址，可填自建实例 |
 | nand_trigger_keywords | list | ["查颗粒", "查物料", ...] | NAND 查询命令关键词；需 @机器人。文本查询需“关键词 空格 参数”，带图/引用图可只发关键词 |
-| image_sn_mode | string | llm | 图片SN识别模式：llm/off |
+| image_recognition_enabled | bool | true | 启用图片识别；关闭后不从产品标签图或 NAND 芯片图中提取 SN/PN |
+| vision_provider_id | string | 空 | 图片识别视觉模型提供商；配置页下拉选择，留空使用全局 default_image_caption_provider_id |
+| image_prompt | string | 空 | 图片识别提示词；留空使用插件内置默认提示词 |
+| fail_message | string | 看不清图，别用锁泥相机拍 | 图片识别失败回复；留空则不回复 |
 | min_sn_len | int | 8 | SN最短长度 |
 | max_sn_len | int | 32 | SN最长长度 |
 | brand_aliases | object | 见配置 | 品牌别名，大小写不敏感 |
@@ -96,7 +99,7 @@ AstrBot 在线硬件产品查询工具，支持质保查询、NAND 物料/颗粒
 
 插件加载时会自动安装 `requirements.txt` 中的依赖。
 
-图片识别依赖 AstrBot 视觉模型 provider，不再需要额外安装本地 OCR。
+图片识别依赖 AstrBot 视觉模型 provider，可在配置页下拉选择。
 
 ## 扩展品牌
 

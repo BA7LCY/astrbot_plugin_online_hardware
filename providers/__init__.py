@@ -6,13 +6,13 @@ from .western_digital import WesternDigitalProvider
 from .ymtc import YmtcProvider
 
 
-def build_providers(timeout: int = 15, image_sn_mode: str = "llm"):
+def build_providers(timeout: int = 15):
     providers = [
         WesternDigitalProvider(timeout),
         SeagateProvider(timeout),
         ToshibaProvider(timeout),
         SandiskProvider(timeout),
-        YmtcProvider(timeout, image_sn_mode),
+        YmtcProvider(timeout),
     ]
     return {provider.brand_id: provider for provider in providers}
 

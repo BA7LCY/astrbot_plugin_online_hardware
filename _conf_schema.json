@@ -40,9 +40,10 @@
     "default": ["查颗粒", "查物料", "查flash id", "查flashid", "查nand", "查pn", "查型号"]
   },
   "vision_provider_id": {
-    "description": "图片识别使用的视觉模型 provider_id。留空时使用 AstrBot 全局 default_image_caption_provider_id。",
+    "description": "图片识别使用的视觉模型提供商。留空/不选择时使用 AstrBot 全局 default_image_caption_provider_id。",
     "type": "string",
-    "default": ""
+    "default": "",
+    "_special": "select_provider"
   },
   "image_prompt": {
     "description": "图片识别提示词。留空时使用插件内置默认提示词。",
@@ -54,10 +55,10 @@
     "type": "string",
     "default": "看不清图，别用锁泥相机拍"
   },
-  "image_sn_mode": {
-    "description": "图片SN识别模式：llm/off。当前仅保留视觉模型识别。",
-    "type": "string",
-    "default": "llm"
+  "image_recognition_enabled": {
+    "description": "启用图片识别。关闭后不再从产品标签图或 NAND 芯片图中提取 SN/PN。",
+    "type": "bool",
+    "default": true
   },
   "min_sn_len": {
     "description": "疑似SN最短长度。建议8，太短容易把型号/容量误识别成SN。",

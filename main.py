@@ -48,11 +48,7 @@ class WarrantyCheckerPlugin(Star):
         self.cache_ttl_seconds = int(self.config.get("cache_ttl_seconds", 7 * 24 * 3600))
         self.timeout_seconds = int(self.config.get("timeout_seconds", 15))
         self.llm_summary = bool(self.config.get("llm_summary", False))
-        self.image_sn_mode = str(self.config.get("image_sn_mode", "llm")).lower().strip()
-        if self.image_sn_mode not in {"llm", "off"}:
-            self.image_sn_mode = "llm"
-        # 兼容旧配置：本地 OCR 只作为遗留值容忍，但不再进入识图流程
-        self.image_ocr_provider = str(self.config.get("image_ocr_provider", "") or "").strip()
+        self.image_recognition_enabled = bool(self.config.get("image_recognition_enabled", True))
         self.vision_provider_id = str(self.config.get("vision_provider_id", "") or "").strip()
         self.image_prompt = str(self.config.get("image_prompt", "") or "").strip()
         self.fail_message = str(self.config.get("fail_message", "看不清图，别用锁泥相机拍") or "")
@@ -75,7 +71,7 @@ class WarrantyCheckerPlugin(Star):
 
         base_dir = Path(__file__).resolve().parent
         self.cache = JsonCache(base_dir / "data" / "cache.json", self.cache_ttl_seconds)
-        self.providers = build_providers(self.timeout_seconds, "llm")
+        self.providers = build_providers(self.timeout_seconds)
         nand_api_base = str(self.config.get("nand_api_base", "")).strip()
         self.nand_provider = build_nand_provider(self.timeout_seconds, nand_api_base)
         self.nand_enabled = bool(self.config.get("nand_query_enabled", True))
@@ -308,25 +304,8 @@ class WarrantyCheckerPlugin(Star):
         )
         return (getattr(resp, "completion_text", "") or str(resp) or "").strip()
 
-    def _extract_query_from_ocr_text(self, text: str) -> Optional[WarrantyQuery]:
-        brand_hit = self._find_brand(text)
-        if not brand_hit:
-            return None
-        brand_id, brand_alias = brand_hit
-        if brand_id not in self.providers:
-            return None
-        serial = self._find_serial(text, brand_alias)
-        if not serial:
-            m = re.search(r"S\s*/?\s*N\s*[:：]?\s*([A-Za-z0-9][A-Za-z0-9\-_]{%d,%d})" % (self.min_sn_len - 1, self.max_sn_len - 1), text, re.I)
-            if m:
-                serial = m.group(1).strip("-_").upper()
-        if not serial:
-            return None
-        provider = self.providers[brand_id]
-        return WarrantyQuery(brand=brand_id, brand_name=provider.display_name, serial=serial, region=self.default_region)
-
     async def _query_from_images(self, event: AstrMessageEvent, text: str) -> Optional[WarrantyQuery]:
-        if self.image_sn_mode == "off":
+        if not self.image_recognition_enabled:
             return None
         images = self._extract_images(event)
         if not images:
@@ -359,7 +338,7 @@ class WarrantyCheckerPlugin(Star):
 
     async def _query_nand_from_images(self, event: AstrMessageEvent, text: str) -> Optional[NandQuery]:
         """从图片中识别 NAND 颗粒型号（PN 或 Flash ID）"""
-        if self.image_sn_mode == "off":
+        if not self.image_recognition_enabled:
             return None
         images = self._extract_images(event)
         if not images:

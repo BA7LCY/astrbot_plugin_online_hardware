@@ -15,9 +15,8 @@ class YmtcProvider(WarrantyProvider):
     display_name = "致态"
     source_url = "https://www.ymtc.com/cn/salesupport.html"
 
-    def __init__(self, timeout: int = 15, image_sn_mode: str = "llm"):
+    def __init__(self, timeout: int = 15):
         super().__init__(timeout)
-        self.image_sn_mode = image_sn_mode
         self.max_retry = 5
         self.retry_delay = 3  # 每次重试间隔3秒
 
