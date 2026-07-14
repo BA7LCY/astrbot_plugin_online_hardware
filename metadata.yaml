@@ -1,5 +1,5 @@
 name: 在线硬件查询
-version: 1.4.0
+version: 1.4.1
 description: 在线硬件产品查询工具，支持质保查询、NAND颗粒物料识别等功能，支持文本和图片识别
 author: BA7LCY
 repo: https://github.com/BA7LCY/astrbot_plugin_online_hardware

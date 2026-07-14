@@ -50,6 +50,11 @@
     "type": "string",
     "default": ""
   },
+  "nand_image_prompt": {
+    "description": "NAND颗粒图片识别提示词。留空时使用内置颗粒丝印提示词，不影响质保SN识别。",
+    "type": "string",
+    "default": ""
+  },
   "fail_message": {
     "description": "图片识别失败时回复内容。留空则不回复。",
     "type": "string",

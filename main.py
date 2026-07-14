@@ -37,7 +37,7 @@ REGION_DISPLAY = {
     "在线硬件查询",
     "BA7LCY",
     "在线硬件产品查询工具，支持质保查询、NAND颗粒物料识别等功能，支持文本和图片识别",
-    "1.4.0",
+    "1.4.1",
 )
 class WarrantyCheckerPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
@@ -51,6 +51,7 @@ class WarrantyCheckerPlugin(Star):
         self.image_recognition_enabled = bool(self.config.get("image_recognition_enabled", True))
         self.vision_provider_id = str(self.config.get("vision_provider_id", "") or "").strip()
         self.image_prompt = str(self.config.get("image_prompt", "") or "").strip()
+        self.nand_image_prompt = str(self.config.get("nand_image_prompt", "") or "").strip()
         self.fail_message = str(self.config.get("fail_message", "看不清图，别用锁泥相机拍") or "")
         self._cached_framework_vlm_id: str | None = None
         self.min_sn_len = int(self.config.get("min_sn_len", 8))
@@ -344,11 +345,12 @@ class WarrantyCheckerPlugin(Star):
         if not images:
             return None
 
-        prompt = self.image_prompt or (
-            "从图片里的硬件标签、NAND Flash 芯片或颗粒丝印中提取硬件型号、序列号、"
-            "NAND Part Number 或 Flash ID。只返回JSON，不要解释。"
-            "NAND格式：{\"pn\":\"型号字符串\",\"type\":\"pn或flash_id\"}。"
-            "如果识别不到就返回 {\"pn\":\"\",\"type\":\"\"}。"
+        prompt = self.nand_image_prompt or (
+            "从图片中的 NAND Flash 芯片丝印提取完整 Part Number 或 Flash ID。"
+            "优先识别厂商型号，如 MT29F、K9、H27、TC58 等；不要把日期码、批次码、封装码或控制器型号当作 PN。"
+            "只返回JSON，不要解释。"
+            "格式：{\"pn\":\"完整型号字符串\",\"type\":\"pn或flash_id\"}。"
+            "无法确认时返回 {\"pn\":\"\",\"type\":\"\"}。"
         )
         prompt = f"{prompt}\n用户文本：{text}"
         raw = await self._call_vision_model(prompt, images[0])

@@ -89,7 +89,8 @@ AstrBot 在线硬件产品查询工具，支持质保查询、NAND 物料/颗粒
 | nand_trigger_keywords | list | ["查颗粒", "查物料", ...] | NAND 查询命令关键词；需 @机器人。文本查询需“关键词 空格 参数”，带图/引用图可只发关键词 |
 | image_recognition_enabled | bool | true | 启用图片识别；关闭后不从产品标签图或 NAND 芯片图中提取 SN/PN |
 | vision_provider_id | string | 空 | 图片识别视觉模型提供商；配置页下拉选择，留空使用全局 default_image_caption_provider_id |
-| image_prompt | string | 空 | 图片识别提示词；留空使用插件内置默认提示词 |
+| image_prompt | string | 空 | 质保标签图片识别提示词；留空使用插件内置默认提示词 |
+| nand_image_prompt | string | 空 | NAND颗粒丝印识别提示词；留空使用内置颗粒提示词，不影响质保SN识别 |
 | fail_message | string | 看不清图，别用锁泥相机拍 | 图片识别失败回复；留空则不回复 |
 | min_sn_len | int | 8 | SN最短长度 |
 | max_sn_len | int | 32 | SN最长长度 |
