@@ -94,20 +94,40 @@ class InspectionReport:
         return "硬盘图片分析"
 
 
-def parse_response(data: dict) -> InspectionReport:
+def parse_response(data: dict, api_mode: str = "responses") -> InspectionReport:
     if data.get("error") or data.get("status") in {"failed", "incomplete", "cancelled", "queued", "in_progress"}:
         raise InspectionError("模型请求未完成，未取得完整分析结果。")
     texts, sources = [], []
-    for item in data.get("output") or []:
-        if not isinstance(item, dict) or item.get("type") != "message":
-            continue
-        for part in item.get("content") or []:
-            if not isinstance(part, dict) or part.get("type") != "output_text":
+    if api_mode == "chat_completions":
+        choices = data.get("choices") or []
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise InspectionError("接口返回格式无效。")
+        choice = choices[0]
+        message = choice.get("message") or {}
+        if choice.get("finish_reason") != "stop":
+            raise InspectionError("模型请求未完成，未取得完整分析结果。")
+        if not isinstance(message, dict):
+            raise InspectionError("接口返回格式无效。")
+        if message.get("tool_calls") or message.get("function_call"):
+            raise InspectionError("接口仅返回工具调用，未完成硬盘分析。")
+        if isinstance(message.get("content"), str):
+            texts.append(message["content"])
+        for ann in message.get("annotations") or []:
+            if isinstance(ann, dict) and ann.get("type") == "url_citation":
+                citation = ann.get("url_citation") or ann
+                if isinstance(citation, dict):
+                    sources.append({"title": citation.get("title"), "url": citation.get("url"), "kind": "annotation"})
+    else:
+        for item in data.get("output") or []:
+            if not isinstance(item, dict) or item.get("type") != "message":
                 continue
-            texts.append(str(part.get("text") or ""))
-            for ann in part.get("annotations") or []:
-                if isinstance(ann, dict) and ann.get("type") == "url_citation":
-                    sources.append({"title": ann.get("title"), "url": ann.get("url"), "kind": "annotation"})
+            for part in item.get("content") or []:
+                if not isinstance(part, dict) or part.get("type") != "output_text":
+                    continue
+                texts.append(str(part.get("text") or ""))
+                for ann in part.get("annotations") or []:
+                    if isinstance(ann, dict) and ann.get("type") == "url_citation":
+                        sources.append({"title": ann.get("title"), "url": ann.get("url"), "kind": "annotation"})
     text = "\n".join(texts).strip()
     if not text:
         raise InspectionError("模型未返回分析正文。")
@@ -143,8 +163,21 @@ class HardwareInspector:
     def analyze_sync(self, images: list[str], note: str = "") -> InspectionReport:
         if not self.base_url or not self.api_key or not self.model:
             raise InspectionError("请先配置硬盘分析的 API 地址、密钥和模型。")
-        if urlsplit(self.base_url).scheme != "https":
+        parsed_url = urlsplit(self.base_url)
+        if parsed_url.scheme != "https" or not parsed_url.hostname:
             raise InspectionError("硬盘分析 API 地址必须使用 HTTPS。")
+        path = parsed_url.path.rstrip("/")
+        endpoint = self.base_url
+        if path.endswith("/responses"):
+            api_mode = "responses"
+        elif path.endswith("/chat/completions"):
+            api_mode = "chat_completions"
+        elif path.endswith("/v1") and not parsed_url.query and not parsed_url.fragment:
+            # Preserve the Responses endpoint used by pre-existing /v1 configs.
+            endpoint += "/responses"
+            api_mode = "responses"
+        else:
+            raise InspectionError("请填写完整 API 地址，以 /responses 或 /chat/completions 结尾。")
         if not 1 <= len(images) <= 3:
             raise InspectionError("请发送或引用同一块机械硬盘的 1–3 张照片。")
         deadline = time.monotonic() + self.timeout_seconds
@@ -158,8 +191,20 @@ class HardwareInspector:
                 "tools": [{"type": "google_search"}],
                 "store": False,
             }
+            if api_mode == "chat_completions":
+                chat_content = [{"type": "text", "text": content[0]["text"]}]
+                chat_content.extend(
+                    {"type": "image_url", "image_url": {"url": part["image_url"]}}
+                    for part in content[1:]
+                )
+                payload = {
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": chat_content}],
+                    "tools": [{"type": "web_search"}],
+                    "store": False,
+                }
             request = urllib.request.Request(
-                self.base_url + "/responses",
+                endpoint,
                 data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                 headers={"Authorization": "Bearer " + self.api_key, "Content-Type": "application/json"},
                 method="POST",
@@ -171,7 +216,7 @@ class HardwareInspector:
             data = json.loads(raw)
             if not isinstance(data, dict):
                 raise InspectionError("接口返回格式无效。")
-            return parse_response(data)
+            return parse_response(data, api_mode)
         except urllib.error.HTTPError as exc:
             raise InspectionError(f"硬盘分析请求失败（HTTP {exc.code}）。") from None
         except urllib.error.URLError:

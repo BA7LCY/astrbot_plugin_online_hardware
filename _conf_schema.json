@@ -7,7 +7,7 @@
   },
   "hardware_api_base": {
     "description": "硬盘分析 API 地址",
-    "hint": "支持图片和google_search的Responses接口基址，含/v1，不含/responses，必须使用HTTPS。",
+    "hint": "填写完整HTTPS端点，例如https://example.com/v1/responses或https://example.com/v1/chat/completions。根据URL自动选择：Responses使用google_search，Chat使用web_search。旧版仅填/v1的地址仍按Responses处理。",
     "type": "string",
     "default": ""
   },
