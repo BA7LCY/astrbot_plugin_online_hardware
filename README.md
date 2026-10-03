@@ -1,10 +1,34 @@
 # 在线硬件查询插件
 
-AstrBot 在线硬件产品查询工具，支持质保查询、NAND 物料/颗粒识别等功能，支持文本和图片识别SN。
-图片识别使用 AstrBot 视觉模型 provider；可在配置页下拉选择，留空则自动使用全局 `default_image_caption_provider_id`。
+AstrBot 在线硬件产品查询工具，支持质保查询、NAND 物料/颗粒识别等功能，支持文本和图片识别 SN。
+图片识别使用插件单独配置的视觉模型 provider，不读取 AstrBot 普通对话上下文，也不会自动回落到全局图片转述模型。
 
 ## 当前支持功能
 
+### 硬盘图片分析（试验功能，默认关闭）
+
+启用 `hardware_inspection_enabled` 并配置独立 API 后，发送 `查硬盘` 加同一块机械硬盘的 1–3 张照片，也可引用图片。群聊仍需 @机器人。
+
+插件将原图直接提交给 Gemini，并在同一次 Responses 请求中声明 `google_search` 工具；模型按详细字段完成检查，插件最后只提取两行纯文本的“结论”和“疑点与依据”发送。该流程不调用质保接口，不使用前置 OCR，不读普通会话上下文，也不自动切换普通视觉模型。
+
+必须使用实际支持 **图片输入 + google_search** 的 Responses 中转接口。此处使用中转协议，并非 Google 原生 `generateContent` 地址。
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| hardware_inspection_enabled | false | 启用独立命令 `查硬盘` |
+| hardware_api_base | 空 | HTTPS API 基址，包含 `/v1`，不包含 `/responses` |
+| hardware_api_key | 空 | 独立 API 密钥 |
+| hardware_model | 空 | 支持图片与搜索的 Gemini 模型名 |
+| hardware_timeout_seconds | 180 | 包含图片准备的最长等待秒数，可在插件配置中自定义；不自动重试 |
+
+照片需为 JPEG、PNG、WebP 或 GIF，单张不超过 20 MiB。一次仅分析一块盘，不维护跨消息补图会话。`查硬盘` 必须严格等于命令本身；带其他文字的普通聊天会照常交给普通 LLM。资料不足时会给出有限分析，接口失败时直接提示失败。
+
+图片只在内存中读取并发送给配置的接口；插件正式使用时不主动把用户图片或分析报告写入本地文件。请求会声明 `store: false`，但网关和模型服务的远端日志策略不在插件控制内。测试阶段的图片结果另由本地评测脚本按测试用途保存。
+“未发现明显矛盾”不等于证明原装或全新；“发现可疑矛盾”是风险提示。本功能处于测试评估阶段，尚未决定正式上线。
+
+### 图片卡片输出（t2i，默认关闭）
+
+启用 `t2i_enabled` 后，质保查询、NAND 物料查询和硬盘图片分析的结果改用图片卡片发送，底层是 AstrBot 的 `html_render`，模板文件为 `templates/hardware_report.html`。卡片只展示状态徽标、关键字段和“结果说明/疑点与依据”；渲染失败自动回退纯文本，不影响原有输出内容。
 ### 质保查询
 
 查询硬件产品保修状态，支持文本输入SN或从产品标签图片识别SN。
@@ -52,7 +76,7 @@ AstrBot 在线硬件产品查询工具，支持质保查询、NAND 物料/颗粒
 - `查质保 希捷` + 图片
 - `查质保 致态` + 图片
 
-插件会通过 AstrBot 视觉模型 provider 从图片中提取 SN，然后查询对应品牌。
+插件会通过主视觉模型从图片中提取 SN；主模型失败或超时后，按配置顺序切换备用视觉模型，再查询对应品牌。
 
 ### NAND 物料查询 - 文本查询
 
@@ -71,14 +95,13 @@ AstrBot 在线硬件产品查询工具，支持质保查询、NAND 物料/颗粒
 - `查颗粒` + 图片
 - `查物料` + 图片
 
-插件会通过 AstrBot 视觉模型 provider 从芯片丝印中自动识别型号（PN / Flash ID），然后查询。
+插件会通过配置的视觉模型 provider 从芯片丝印中自动识别型号（PN / Flash ID），然后查询。
 关闭 `image_recognition_enabled` 可关闭图片识别。
 
 ## 配置项
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| enabled | bool | true | 启用插件 |
 | default_region | string | CN | 默认地区代码 |
 | cache_ttl_seconds | int | 604800 | 缓存时间（秒），默认一周 |
 | timeout_seconds | int | 15 | 请求超时（秒） |
@@ -88,7 +111,9 @@ AstrBot 在线硬件产品查询工具，支持质保查询、NAND 物料/颗粒
 | nand_api_base | string | https://fdnext.itxtech.org | fdnext API 地址，可填自建实例 |
 | nand_trigger_keywords | list | ["查颗粒", "查物料", ...] | NAND 查询命令关键词；需 @机器人。文本查询需“关键词 空格 参数”，带图/引用图可只发关键词 |
 | image_recognition_enabled | bool | true | 启用图片识别；关闭后不从产品标签图或 NAND 芯片图中提取 SN/PN |
-| vision_provider_id | string | 空 | 图片识别视觉模型提供商；配置页下拉选择，留空使用全局 default_image_caption_provider_id |
+| vision_provider_id | string | 空 | 插件图片识别的主视觉模型；不会使用 AstrBot 全局图片转述或普通对话模型 |
+| vision_fallback_provider_ids | list | [] | 主模型失败或超时后的备用视觉模型，可添加多个，列表顺序就是回落顺序 |
+| vision_timeout_seconds | int | 60 | 单个视觉模型最长等待时间，单位为秒；填 0 不设置插件侧超时 |
 | image_prompt | string | 空 | 质保标签图片识别提示词；留空使用插件内置默认提示词 |
 | nand_image_prompt | string | 空 | NAND颗粒丝印识别提示词；留空使用内置颗粒提示词，不影响质保SN识别 |
 | fail_message | string | 看不清图，别用锁泥相机拍 | 图片识别失败回复；留空则不回复 |
@@ -100,7 +125,7 @@ AstrBot 在线硬件产品查询工具，支持质保查询、NAND 物料/颗粒
 
 插件加载时会自动安装 `requirements.txt` 中的依赖。
 
-图片识别依赖 AstrBot 视觉模型 provider，可在配置页下拉选择。
+图片识别依赖 AstrBot Chat provider，可在插件配置页分别选择主模型和多个备用模型。插件调用每个模型时使用空上下文，因此不会把图片识别请求写入 AstrBot 普通对话。
 
 ## 扩展品牌
 
@@ -120,6 +145,8 @@ providers/
 ├── ymtc.py           # 致态
 └── nand.py           # NAND 物料查询（fdnext 引擎）
 main.py               # 主逻辑：触发解析、SN识别、缓存、格式化
+vision_client.py      # 插件独立视觉调用与有序备用 provider 回落
+hardware_inspection.py # 独立硬盘图片+搜索请求与报告解析，无 AstrBot 依赖
 models.py             # 数据模型
 cache.py              # JSON 文件缓存
 ```

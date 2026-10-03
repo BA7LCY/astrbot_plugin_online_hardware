@@ -1,112 +1,179 @@
 {
-  "enabled": {
-    "description": "启用插件",
+  "hardware_inspection_enabled": {
+    "description": "启用硬盘图片分析（试验）",
+    "hint": "使用查硬盘发送或引用同一块机械硬盘的1–3张照片，由独立Gemini接口直接看图并搜索。默认关闭。",
     "type": "bool",
-    "default": true
+    "default": false
+  },
+  "hardware_api_base": {
+    "description": "硬盘分析 API 地址",
+    "hint": "支持图片和google_search的Responses接口基址，含/v1，不含/responses，必须使用HTTPS。",
+    "type": "string",
+    "default": ""
+  },
+  "hardware_api_key": {
+    "description": "硬盘分析 API 密钥",
+    "hint": "独立接口的API密钥，不会自动读取其他skill配置。",
+    "type": "string",
+    "default": ""
+  },
+  "hardware_model": {
+    "description": "硬盘分析模型",
+    "hint": "填写接口支持图片与Google搜索的Gemini模型名称。",
+    "type": "string",
+    "default": ""
+  },
+  "hardware_timeout_seconds": {
+    "description": "硬盘分析超时",
+    "hint": "整次图片准备与模型分析的最长等待秒数，默认180。失败不会自动重试或切换普通模型。",
+    "type": "int",
+    "default": 180
+  },
+  "t2i_enabled": {
+    "description": "图片卡片输出（t2i）",
+    "hint": "开启后，查质保、NAND查询和硬盘图片分析的结果渲染为图片卡片发送；渲染失败自动回退为纯文本。默认关闭，使用 AstrBot 的 html_render。",
+    "type": "bool",
+    "default": false
   },
   "default_region": {
-    "description": "默认地区代码，默认中国 CN",
+    "description": "默认地区",
+    "hint": "质保查询未指定地区时使用的地区代码，默认 CN（中国）。",
     "type": "string",
     "default": "CN"
   },
   "cache_ttl_seconds": {
-    "description": "缓存秒数，默认一周",
+    "description": "缓存时长",
+    "hint": "官网查询结果缓存时间，单位为秒，默认一周。",
     "type": "int",
     "default": 604800
   },
   "timeout_seconds": {
-    "description": "官网请求超时秒数",
+    "description": "官网超时",
+    "hint": "质保官网请求的超时时间，单位为秒。",
     "type": "int",
     "default": 15
   },
   "llm_summary": {
-    "description": "是否启用模型总结，默认关闭省token",
+    "description": "启用结果总结",
+    "hint": "是否使用模型重新总结质保结果，默认关闭以节省 token。",
     "type": "bool",
     "default": false
   },
   "nand_query_enabled": {
-    "description": "是否启用NAND物料/颗粒查询功能（基于iTXTech fdnext引擎）",
+    "description": "启用 NAND 查询",
+    "hint": "是否启用 NAND 物料和颗粒查询功能，查询引擎为 iTXTech fdnext。",
     "type": "bool",
     "default": true
   },
   "nand_api_base": {
-    "description": "fdnext API 地址，默认使用官方云端。可填自建实例地址如 http://127.0.0.1:8080",
+    "description": "NAND 查询地址",
+    "hint": "fdnext API 地址，默认使用官方云端，也可以填写自建实例地址。",
     "type": "string",
     "default": "https://fdnext.itxtech.org"
   },
   "nand_trigger_keywords": {
-    "description": "NAND 查询命令关键词列表。群聊中需 @机器人。文本查询严格为“关键词 空格 参数”；带图或引用图时允许只发关键词，例如：查颗粒 + 图片。", 
+    "description": "NAND 查询关键词",
+    "hint": "NAND 查询命令关键词。群聊中需 @机器人；文本查询使用“关键词 空格 参数”，带图片时可只发送关键词。",
     "type": "list",
     "default": ["查颗粒", "查物料", "查flash id", "查flashid", "查nand", "查pn", "查型号"]
   },
   "vision_provider_id": {
-    "description": "图片识别使用的视觉模型提供商。留空/不选择时使用 AstrBot 全局 default_image_caption_provider_id。",
+    "description": "主视觉模型",
+    "hint": "插件图片识别使用的主 Chat provider。必须单独选择；不会自动使用 AstrBot 的全局图片转述模型或普通对话模型。",
     "type": "string",
     "default": "",
     "_special": "select_provider"
   },
+  "vision_fallback_provider_ids": {
+    "description": "备用视觉模型",
+    "hint": "主视觉模型失败或超时后，按此处的列表顺序逐个尝试。可添加多个；列表耗尽后不会回落到 AstrBot 全局模型。",
+    "type": "list",
+    "items": {
+      "type": "string"
+    },
+    "default": []
+  },
+  "vision_timeout_seconds": {
+    "description": "视觉请求超时",
+    "hint": "单个视觉 provider 的最长等待时间，单位为秒；超时后切换下一个 provider。填 0 表示不设置插件侧超时。",
+    "type": "int",
+    "default": 60
+  },
   "image_prompt": {
-    "description": "图片识别提示词。留空时使用插件内置默认提示词。",
+    "description": "标签识别提示词",
+    "hint": "质保产品标签图片的识别提示词。留空时使用插件内置提示词。",
     "type": "string",
     "default": ""
   },
   "nand_image_prompt": {
-    "description": "NAND颗粒图片识别提示词。留空时使用内置颗粒丝印提示词，不影响质保SN识别。",
+    "description": "NAND 识别提示词",
+    "hint": "NAND 芯片丝印图片的识别提示词。留空时使用插件内置提示词。",
     "type": "string",
     "default": ""
   },
   "fail_message": {
-    "description": "图片识别失败时回复内容。留空则不回复。",
+    "description": "识别失败回复",
+    "hint": "图片识别失败时发送的内容。留空则不回复。",
     "type": "string",
     "default": "看不清图，别用锁泥相机拍"
   },
   "image_recognition_enabled": {
-    "description": "启用图片识别。关闭后不再从产品标签图或 NAND 芯片图中提取 SN/PN。",
+    "description": "启用图片识别",
+    "hint": "关闭后不再从产品标签图或 NAND 芯片图中提取 SN、PN。",
     "type": "bool",
     "default": true
   },
   "min_sn_len": {
-    "description": "疑似SN最短长度。建议8，太短容易把型号/容量误识别成SN。",
+    "description": "SN 最短长度",
+    "hint": "疑似序列号的最短长度。建议使用 8，太短容易误识别型号或容量。",
     "type": "int",
     "default": 8
   },
   "max_sn_len": {
-    "description": "疑似SN最长长度",
+    "description": "SN 最长长度",
+    "hint": "疑似序列号的最长长度。",
     "type": "int",
     "default": 32
   },
   "trigger_keywords": {
-    "description": "质保查询命令关键词列表。群聊中需 @机器人，且消息清洗后必须严格为“关键词 空格 品牌 空格 SN/图片说明”才触发，例如：查质保 西数 SN123、查保修 希捷 图片。", 
+    "description": "质保查询关键词",
+    "hint": "质保查询命令关键词。群聊中需 @机器人，消息需严格符合“关键词 空格 品牌 空格 SN/图片说明”。",
     "type": "list",
     "default": ["查质保", "查保修"]
   },
   "brand_aliases": {
-    "description": "品牌别名配置。后续加品牌先加Provider，再在这里加别名。",
+    "description": "品牌别名",
+    "hint": "品牌名称和别名配置，匹配时不区分大小写。",
     "type": "object",
     "default": {},
     "items": {
       "western_digital": {
-        "description": "西部数据别名",
+        "description": "西部数据",
+        "hint": "西部数据的可用别名。",
         "type": "list",
         "default": ["西数", "西部数据", "WD", "Western Digital"]
       },
       "seagate": {
-        "description": "希捷别名",
+        "description": "希捷",
+        "hint": "希捷的可用别名。",
         "type": "list",
         "default": ["希捷", "Seagate", "海门"]
       },
       "toshiba": {
-        "description": "东芝别名",
+        "description": "东芝",
+        "hint": "东芝的可用别名。",
         "type": "list",
         "default": ["东芝", "Toshiba"]
       },
       "sandisk": {
-        "description": "闪迪别名",
+        "description": "闪迪",
+        "hint": "闪迪的可用别名。",
         "type": "list",
-        "default": ["闪迪", "sandisk"]
+        "default": ["闪迪", "Sandisk"]
       },
       "ymtc": {
-        "description": "致态别名",
+        "description": "致态",
+        "hint": "致态的可用别名。",
         "type": "list",
         "default": ["致态", "YMTC", "长江存储"]
       }

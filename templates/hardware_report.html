@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #10151d;
+      --panel: #1a202b;
+      --panel-soft: #202835;
+      --line: #303949;
+      --text: #f3f6fa;
+      --muted: #98a3b3;
+      --accent: {{ accent or '#40b883' }};
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      width: 760px;
+      padding: 24px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif;
+      letter-spacing: 0;
+    }
+    .report {
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    .accent { height: 6px; background: var(--accent); }
+    .body { padding: 24px 26px 22px; }
+    .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .eyebrow {
+      color: var(--muted);
+      font-size: 17px;
+      font-weight: 600;
+    }
+    .badge {
+      padding: 8px 13px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #11161d;
+      font-size: 17px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .title {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.25;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+    .subtitle {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+    .fields {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 22px;
+    }
+    .field {
+      min-height: 76px;
+      padding: 13px 14px;
+      background: var(--panel-soft);
+      border: 1px solid #2d3646;
+      border-radius: 8px;
+    }
+    .label {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .value {
+      display: block;
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .notes {
+      margin-top: 20px;
+      padding: 18px 20px;
+      background: #171d27;
+      border: 1px solid #2c3543;
+      border-radius: 8px;
+    }
+    .notes-title {
+      margin: 0 0 12px;
+      color: var(--accent);
+      font-size: 17px;
+      font-weight: 800;
+    }
+    .note {
+      margin: 0;
+      padding: 8px 0 8px 18px;
+      position: relative;
+      color: #dce3ec;
+      font-size: 17px;
+      line-height: 1.55;
+      overflow-wrap: anywhere;
+    }
+    .note + .note { border-top: 1px solid #2b3342; }
+    .note::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 17px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 18px;
+      color: #7f8998;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+  </style>
+</head>
+<body>
+  <section class="report">
+    <div class="accent"></div>
+    <div class="body">
+      <div class="top">
+        <div class="eyebrow">{{ eyebrow }}</div>
+        <div class="badge">{{ status }}</div>
+      </div>
+      <h1 class="title">{{ title }}</h1>
+      {% if subtitle %}<p class="subtitle">{{ subtitle }}</p>{% endif %}
+      {% if fields %}
+      <div class="fields">
+        {% for field in fields %}
+        <div class="field">
+          <span class="label">{{ field.label }}</span>
+          <span class="value">{{ field.value }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if notes %}
+      <div class="notes">
+        <h2 class="notes-title">{{ notes_title or '疑点与依据' }}</h2>
+        {% for note in notes %}<p class="note">{{ note }}</p>{% endfor %}
+      </div>
+      {% endif %}
+      <div class="footer">
+        <span>{{ footer_left }}</span>
+        <span>{{ footer_right }}</span>
+      </div>
+    </div>
+  </section>
+</body>
+</html>
